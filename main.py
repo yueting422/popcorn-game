@@ -2,7 +2,7 @@
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
-import json
+import json # 重新加入 json 函式庫以應對不同格式
 
 # 引入遊戲模組
 import flash_card
@@ -11,13 +11,26 @@ import flash_card
 # 檢查是否已經初始化，避免重複初始化
 if not firebase_admin._apps:
     try:
-        # 從 Streamlit Secrets 讀取金鑰，這是部署到雲端的標準做法
-        key_dict = json.loads(st.secrets["firebase_key"])
+        # --- 修改開始 (採用更穩健的讀取方式) ---
+        # 取得 secrets 中的憑證資料
+        secret_data = st.secrets["firebase_credentials"]
+
+        # 檢查憑證資料是字串(需要解析)還是字典(可以直接使用)
+        if isinstance(secret_data, str):
+            # 如果是字串，表示它是 JSON 格式的文字，需要用 json.loads() 解析
+            key_dict = json.loads(secret_data)
+        else:
+            # 如果不是字串，表示 Streamlit 已將其解析為字典
+            key_dict = dict(secret_data)
+        
         cred = credentials.Certificate(key_dict)
+        # --- 修改結束 ---
+
         firebase_admin.initialize_app(cred)
+
     except KeyError:
         # 如果在本機測試且沒有設定 secrets，可以提示使用者檢查金鑰檔案
-        st.warning("找不到 Streamlit Secrets 中的 'firebase_key'。正在嘗試使用本地 firebase_key.json 檔案。")
+        st.warning("找不到 Streamlit Secrets 中的憑證。正在嘗試使用本地 firebase_key.json 檔案。")
         try:
             cred = credentials.Certificate("firebase_key.json")
             firebase_admin.initialize_app(cred)
@@ -25,7 +38,9 @@ if not firebase_admin._apps:
             st.error("在本機和 Streamlit Secrets 中都找不到 Firebase 金鑰！請確認 firebase_key.json 存在或已設定 Secrets。")
             st.stop()
     except Exception as e:
+        # 顯示更詳細的錯誤訊息，方便除錯
         st.error(f"Firebase 初始化失敗: {e}")
+        st.error(f"收到的憑證類型為: {type(st.secrets.get('firebase_credentials'))}")
         st.stop()
 
 db = firestore.client()
