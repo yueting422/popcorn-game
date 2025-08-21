@@ -2,155 +2,128 @@
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
-import json # 重新加入 json 函式庫以應對不同格式
+from passlib.hash import pbkdf2_sha256 # 用於密碼雜湊與驗證
 
 # 引入遊戲模組
 import flash_card
 
-# -------------------- Firebase 初始化 --------------------
-# 檢查是否已經初始化，避免重複初始化
-if not firebase_admin._apps:
-    try:
-        # --- 修改開始 (採用更穩健的讀取方式) ---
-        # 取得 secrets 中的憑證資料
-        secret_data = st.secrets["firebase_credentials"]
+# --- 網頁基礎設定 ---
+st.set_page_config(page_title="爆米花遊樂場", page_icon="🍿", layout="wide")
 
-        # 檢查憑證資料是字串(需要解析)還是字典(可以直接使用)
-        if isinstance(secret_data, str):
-            # 如果是字串，表示它是 JSON 格式的文字，需要用 json.loads() 解析
-            key_dict = json.loads(secret_data)
-        else:
-            # 如果不是字串，表示 Streamlit 已將其解析為字典
-            key_dict = dict(secret_data)
-        
-        cred = credentials.Certificate(key_dict)
-        # --- 修改結束 ---
-
-        firebase_admin.initialize_app(cred)
-
-    except KeyError:
-        # 如果在本機測試且沒有設定 secrets，可以提示使用者檢查金鑰檔案
-        st.warning("找不到 Streamlit Secrets 中的憑證。正在嘗試使用本地 firebase_key.json 檔案。")
-        try:
-            cred = credentials.Certificate("firebase_key.json")
+# --- Firebase 初始化 ---
+try:
+    # 檢查 st.session_state 中是否已存在 db 物件，避免重複初始化
+    if 'db' not in st.session_state:
+        # 從 Streamlit Secrets 讀取憑證，這是部署的標準做法
+        creds_dict = {
+            "type": st.secrets["firebase_credentials"]["type"],
+            "project_id": st.secrets["firebase_credentials"]["project_id"],
+            "private_key_id": st.secrets["firebase_credentials"]["private_key_id"],
+            "private_key": st.secrets["firebase_credentials"]["private_key"].replace('\\n', '\n'),
+            "client_email": st.secrets["firebase_credentials"]["client_email"],
+            "client_id": st.secrets["firebase_credentials"]["client_id"],
+            "auth_uri": st.secrets["firebase_credentials"]["auth_uri"],
+            "token_uri": st.secrets["firebase_credentials"]["token_uri"],
+            "auth_provider_x509_cert_url": st.secrets["firebase_credentials"]["auth_provider_x509_cert_url"],
+            "client_x509_cert_url": st.secrets["firebase_credentials"]["client_x509_cert_url"],
+        }
+        cred = credentials.Certificate(creds_dict)
+        # 檢查 Firebase app 是否已經初始化
+        if not firebase_admin._apps:
             firebase_admin.initialize_app(cred)
-        except FileNotFoundError:
-            st.error("在本機和 Streamlit Secrets 中都找不到 Firebase 金鑰！請確認 firebase_key.json 存在或已設定 Secrets。")
-            st.stop()
-    except Exception as e:
-        # 顯示更詳細的錯誤訊息，方便除錯
-        st.error(f"Firebase 初始化失敗: {e}")
-        st.error(f"收到的憑證類型為: {type(st.secrets.get('firebase_credentials'))}")
-        st.stop()
+        # 將 db client 存入 session_state
+        st.session_state['db'] = firestore.client()
+except Exception as e:
+    st.error("Firebase 初始化失敗，請檢查 Streamlit Secrets 中的金鑰設定。")
+    st.error(e)
+    # 如果初始化失敗，則停止應用程式執行
+    st.stop()
 
-db = firestore.client()
+# 從 session_state 中取得 db client
+db = st.session_state['db']
 
-# -------------------- Session State 初始化 --------------------
-# 用 st.session_state 來儲存使用者的登入狀態和資訊
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-    st.session_state.user_email = ""
-    st.session_state.popcorn = 0
-    st.session_state.page = "主頁" # 用於頁面導航
-
-# -------------------- 函式定義 --------------------
-
-def update_popcorn_in_db(email, amount):
-    """更新資料庫中的爆米花數量"""
-    try:
-        user_ref = db.collection('users').document(email)
-        # 使用 Increment 來安全地增加數值
-        user_ref.update({'popcorn': firestore.Increment(amount)})
-        st.session_state.popcorn += amount # 同時更新 session_state
-        return True
-    except Exception as e:
-        st.error(f"更新爆米花失敗: {e}")
-        return False
-
-# -------------------- UI 介面 --------------------
-
-# 將登入/註冊/登出介面放在側邊欄
-st.sidebar.title("🍿 爆米花遊樂場")
-
-if not st.session_state.logged_in:
-    # --- 登入/註冊選擇 ---
-    auth_choice = st.sidebar.radio("導航", ["登入", "註冊"])
-
-    if auth_choice == "登入":
-        st.sidebar.subheader("會員登入")
-        with st.sidebar.form("login_form"):
-            email = st.text_input("信箱")
-            password = st.text_input("密碼", type="password")
-            login_button = st.form_submit_button("登入")
-
-            if login_button:
-                if email and password:
-                    try:
-                        user_ref = db.collection('users').document(email).get()
-                        if user_ref.exists:
-                            user_data = user_ref.to_dict()
-                            if user_data.get('password') == password:
-                                st.session_state.logged_in = True
-                                st.session_state.user_email = email
-                                st.session_state.popcorn = user_data.get('popcorn', 0)
-                                st.session_state.page = "主頁"
-                                st.rerun()
-                            else:
-                                st.sidebar.error("密碼錯誤！")
-                        else:
-                            st.sidebar.error("此帳號不存在！")
-                    except Exception as e:
-                        st.sidebar.error(f"登入失敗: {e}")
+# --- 登入與註冊邏輯 (來自 app.py) ---
+def show_login_register_page():
+    st.title("🍿 歡迎來到爆米花遊樂場")
+    login_tab, register_tab = st.tabs(["登入 (Login)", "註冊 (Register)"])
+    
+    with login_tab:
+        st.subheader("會員登入")
+        with st.form("login_form"):
+            username = st.text_input("使用者名稱", key="login_user").lower()
+            password = st.text_input("密碼", type="password", key="login_pass")
+            login_submitted = st.form_submit_button("登入")
+            
+            if login_submitted:
+                if not username or not password:
+                    st.error("使用者名稱和密碼不可為空！")
                 else:
-                    st.sidebar.warning("請輸入信箱和密碼。")
-
-    elif auth_choice == "註冊":
-        st.sidebar.subheader("建立新帳號")
-        with st.sidebar.form("register_form"):
-            new_email = st.text_input("信箱")
-            new_password = st.text_input("密碼", type="password")
-            confirm_password = st.text_input("確認密碼", type="password")
-            register_button = st.form_submit_button("註冊")
-
-            if register_button:
-                if new_email and new_password and confirm_password:
-                    if new_password == confirm_password:
-                        try:
-                            user_ref = db.collection('users').document(new_email)
-                            if not user_ref.get().exists:
-                                # 註冊送100爆米花
-                                user_data = {'password': new_password, 'popcorn': 100}
-                                user_ref.set(user_data)
-                                st.sidebar.success("註冊成功！請前往登入頁面。")
-                            else:
-                                st.sidebar.error("此信箱已被註冊！")
-                        except Exception as e:
-                            st.sidebar.error(f"註冊失敗: {e}")
+                    user_ref = db.collection('users').document(username).get()
+                    if not user_ref.exists:
+                        st.error("使用者不存在！")
                     else:
-                        st.sidebar.error("兩次輸入的密碼不一致！")
+                        user_data = user_ref.to_dict()
+                        # 驗證雜湊後的密碼
+                        if pbkdf2_sha256.verify(password, user_data.get('password_hash', '')):
+                            st.session_state['authentication_status'] = True
+                            st.session_state['username'] = username
+                            st.session_state['name'] = user_data.get('name', username)
+                            st.session_state['popcorn'] = user_data.get('popcorn', 0) # 登入時讀取爆米花數量
+                            st.rerun()
+                        else:
+                            st.error("密碼不正確！")
+
+    with register_tab:
+        st.subheader("建立新帳號")
+        with st.form("register_form"):
+            new_name = st.text_input("您的暱稱", key="reg_name")
+            new_username = st.text_input("設定使用者名稱 (僅限英文和數字)", key="reg_user").lower()
+            new_password = st.text_input("設定密碼", type="password", key="reg_pass")
+            confirm_password = st.text_input("確認密碼", type="password", key="reg_confirm")
+            register_submitted = st.form_submit_button("註冊")
+
+            if register_submitted:
+                if not all([new_name, new_username, new_password, confirm_password]):
+                    st.error("所有欄位都必須填寫！")
+                elif new_password != confirm_password:
+                    st.error("兩次輸入的密碼不一致！")
+                elif not new_username.isalnum():
+                    st.error("使用者名稱只能包含英文和數字！")
                 else:
-                    st.sidebar.warning("所有欄位皆為必填。")
+                    user_ref = db.collection('users').document(new_username)
+                    if user_ref.get().exists:
+                        st.error("此使用者名稱已被註冊！")
+                    else:
+                        # 將密碼進行雜湊加密
+                        password_hash = pbkdf2_sha256.hash(new_password)
+                        # 建立使用者資料，並給予初始 100 爆米花
+                        user_data = {
+                            "name": new_name, 
+                            "password_hash": password_hash,
+                            "popcorn": 100
+                        }
+                        user_ref.set(user_data)
+                        st.success("註冊成功！請前往登入分頁進行登入。")
 
-else: # 如果已登入
-    st.sidebar.success(f"歡迎, {st.session_state.user_email}!")
-    st.sidebar.write(f"您目前擁有 {st.session_state.popcorn} 🍿")
-
+# --- 主應用程式邏輯 ---
+def main_app():
+    # 將歡迎訊息和登出按鈕放在側邊欄
+    st.sidebar.title(f"歡迎, {st.session_state['name']}!")
+    st.sidebar.write(f"您目前擁有 {st.session_state.get('popcorn', 0)} 🍿")
     if st.sidebar.button("登出"):
-        # 清空 session state
+        # 清空 session state 以登出
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
+    
+    st.sidebar.markdown("---")
 
-# -------------------- 主畫面內容 --------------------
-
-if not st.session_state.logged_in:
-    st.title("歡迎來到爆米花遊樂場")
-    st.write("請從左方側邊欄登入或註冊以開始遊戲。")
-
-else: # 已登入後的主畫面
-    # --- 頁面導航 ---
+    # 遊戲頁面導航
+    if 'page' not in st.session_state:
+        st.session_state.page = "主頁"
+        
     if st.session_state.page == "主頁":
-        st.title("遊戲大廳")
+        st.title("🕹️ 遊戲大廳")
         st.write("選擇一個你想玩的遊戲！")
         if st.button("🧠 記憶翻翻樂"):
             st.session_state.page = "翻翻樂"
@@ -160,4 +133,29 @@ else: # 已登入後的主畫面
 
     elif st.session_state.page == "翻翻樂":
         # 呼叫 flash_card 模組中的函式來玩遊戲
-        flash_card.start_game(st.session_state.user_email, update_popcorn_in_db)
+        # 將 username 傳遞給遊戲，以便更新分數
+        update_popcorn_func = lambda username, amount: db.collection('users').document(username).update({'popcorn': firestore.Increment(amount)})
+        flash_card.start_game(st.session_state['username'], update_popcorn_in_db)
+
+
+def update_popcorn_in_db(username, amount):
+    """更新資料庫中的爆米花數量"""
+    try:
+        user_ref = db.collection('users').document(username)
+        user_ref.update({'popcorn': firestore.Increment(amount)})
+        st.session_state.popcorn += amount # 同時更新 session_state
+        return True
+    except Exception as e:
+        st.error(f"更新爆米花失敗: {e}")
+        return False
+
+# --- 程式進入點 ---
+# 檢查 session_state 中是否已定義 'authentication_status'
+if 'authentication_status' not in st.session_state:
+    st.session_state['authentication_status'] = None
+
+# 根據登入狀態顯示不同頁面
+if st.session_state.get('authentication_status'):
+    main_app()
+else:
+    show_login_register_page()
