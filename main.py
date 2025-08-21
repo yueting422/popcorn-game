@@ -2,7 +2,7 @@
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
-import json
+# import json  <-- 這個版本不再需要 json 函式庫
 
 # 引入遊戲模組
 import flash_card
@@ -11,13 +11,16 @@ import flash_card
 # 檢查是否已經初始化，避免重複初始化
 if not firebase_admin._apps:
     try:
-        # 從 Streamlit Secrets 讀取金鑰，這是部署到雲端的標準做法
-        key_dict = json.loads(st.secrets["firebase_key"])
-        cred = credentials.Certificate(key_dict)
+        # --- 修改開始 (為了配合您的 Secrets 設定) ---
+        # 直接讀取您在 Secrets 中設定的 [firebase_credentials] 區塊。
+        # Streamlit 會自動將其解析為一個字典 (dictionary)。
+        cred = credentials.Certificate(st.secrets["firebase_credentials"])
+        # --- 修改結束 ---
+        
         firebase_admin.initialize_app(cred)
     except KeyError:
         # 如果在本機測試且沒有設定 secrets，可以提示使用者檢查金鑰檔案
-        st.warning("找不到 Streamlit Secrets 中的 'firebase_key'。正在嘗試使用本地 firebase_key.json 檔案。")
+        st.warning("找不到 Streamlit Secrets 中的 'firebase_credentials'。正在嘗試使用本地 firebase_key.json 檔案。")
         try:
             cred = credentials.Certificate("firebase_key.json")
             firebase_admin.initialize_app(cred)
