@@ -2,6 +2,8 @@
 import streamlit as st
 import random
 import time
+import os
+from PIL import Image # 引入圖片處理函式庫
 
 def start_game(user_email, db_update_func):
     """
@@ -20,10 +22,9 @@ def start_game(user_email, db_update_func):
         st.success(f"時間到！你成功配對了 {st.session_state.matched_pairs} 組！")
         st.info(f"你獲得了 {st.session_state.matched_pairs} 個爆米花 🍿")
         
-        # 檢查是否已經領取獎勵
         if not st.session_state.reward_claimed:
             if db_update_func(user_email, st.session_state.matched_pairs):
-                st.session_state.reward_claimed = True # 標記已領取
+                st.session_state.reward_claimed = True
                 st.balloons()
             else:
                 st.error("領取獎勵失敗，請稍後再試。")
@@ -46,17 +47,36 @@ def start_game(user_email, db_update_func):
         st.rerun()
 
     # --- 顯示遊戲板 ---
+    # 設定圖片路徑
+    image_folder = os.path.join("image", "flash_card")
+    card_back_image = os.path.join(image_folder, "卡背.jpg")
+
+    if not os.path.exists(card_back_image):
+        st.error(f"找不到卡背圖片: {card_back_image}")
+        st.stop()
+
     cols = st.columns(7) # 7x6 的版面
     for i, card_value in enumerate(st.session_state.game_board):
         col = cols[i % 7]
         with col:
             card_status = st.session_state.card_status[i]
             
-            # 如果卡片被翻開或已配對，顯示卡面
+            # 如果卡片被翻開或已配對，顯示卡面圖片
             if card_status in ['flipped', 'matched']:
-                st.button(card_value, key=f"card_{i}", disabled=True)
-            else: # 否則顯示卡背
-                if st.button("❔", key=f"card_{i}"):
+                # 根據卡片值 (例如 "12-1") 找到對應的圖片 ("12.jpg")
+                image_name = f"{card_value.split('-')[0]}.jpg"
+                image_path = os.path.join(image_folder, image_name)
+                
+                try:
+                    # 使用 use_column_width=True 讓圖片填滿欄位
+                    col.image(image_path, use_column_width=True)
+                except Exception:
+                    col.error(f"找不到圖片 {image_name}")
+
+            # 否則顯示卡背圖片，並提供一個翻開按鈕
+            else:
+                col.image(card_back_image, use_column_width=True)
+                if col.button("翻開", key=f"card_{i}", use_container_width=True):
                     handle_card_click(i)
                     st.rerun()
 
@@ -81,7 +101,7 @@ def initialize_game():
     st.session_state.start_time = time.time()
     st.session_state.game_started = True
     st.session_state.game_over = False
-    st.session_state.reward_claimed = False # 是否已領取獎勵
+    st.session_state.reward_claimed = False
 
 def handle_card_click(index):
     """處理卡片點擊事件"""
@@ -118,7 +138,6 @@ def handle_card_click(index):
             st.session_state.card_status[idx2] = 'matched'
             st.session_state.matched_pairs += 1
             st.session_state.flipped_indices = []
-
 
 def reset_game_state():
     """清除遊戲相關的 session state"""

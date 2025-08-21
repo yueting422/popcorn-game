@@ -11,14 +11,19 @@ import flash_card
 # 檢查是否已經初始化，避免重複初始化
 if not firebase_admin._apps:
     try:
-        # 嘗試從 Streamlit Secrets 讀取金鑰
-        # st.secrets['firebase_key'] 是一個字典，我們需要將它轉成 JSON 字串
+        # 從 Streamlit Secrets 讀取金鑰，這是部署到雲端的標準做法
         key_dict = json.loads(st.secrets["firebase_key"])
         cred = credentials.Certificate(key_dict)
         firebase_admin.initialize_app(cred)
     except KeyError:
-        st.error("請在 Streamlit Cloud 的 Secrets 中設定 'firebase_key'。")
-        st.stop()
+        # 如果在本機測試且沒有設定 secrets，可以提示使用者檢查金鑰檔案
+        st.warning("找不到 Streamlit Secrets 中的 'firebase_key'。正在嘗試使用本地 firebase_key.json 檔案。")
+        try:
+            cred = credentials.Certificate("firebase_key.json")
+            firebase_admin.initialize_app(cred)
+        except FileNotFoundError:
+            st.error("在本機和 Streamlit Secrets 中都找不到 Firebase 金鑰！請確認 firebase_key.json 存在或已設定 Secrets。")
+            st.stop()
     except Exception as e:
         st.error(f"Firebase 初始化失敗: {e}")
         st.stop()
@@ -39,6 +44,7 @@ def update_popcorn_in_db(email, amount):
     """更新資料庫中的爆米花數量"""
     try:
         user_ref = db.collection('users').document(email)
+        # 使用 Increment 來安全地增加數值
         user_ref.update({'popcorn': firestore.Increment(amount)})
         st.session_state.popcorn += amount # 同時更新 session_state
         return True
@@ -73,7 +79,7 @@ if not st.session_state.logged_in:
                                 st.session_state.user_email = email
                                 st.session_state.popcorn = user_data.get('popcorn', 0)
                                 st.session_state.page = "主頁"
-                                st.rerun() # 重新整理頁面以更新狀態
+                                st.rerun()
                             else:
                                 st.sidebar.error("密碼錯誤！")
                         else:
@@ -97,7 +103,8 @@ if not st.session_state.logged_in:
                         try:
                             user_ref = db.collection('users').document(new_email)
                             if not user_ref.get().exists:
-                                user_data = {'password': new_password, 'popcorn': 100} # 註冊送100爆米花
+                                # 註冊送100爆米花
+                                user_data = {'password': new_password, 'popcorn': 100}
                                 user_ref.set(user_data)
                                 st.sidebar.success("註冊成功！請前往登入頁面。")
                             else:
