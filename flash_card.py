@@ -24,16 +24,6 @@ def start_game(user_email, db_update_func):
     if 'game_started' not in st.session_state or not st.session_state.game_started:
         initialize_game()
 
-    # --- 【核心修改】使用 st.query_params 處理點擊事件 ---
-    # 這是最穩定的方法，可以精準捕捉使用者的點擊
-    params = st.query_params
-    if "card_click" in params:
-        clicked_index = int(params["card_click"])
-        # 使用 st.query_params.clear() 來清除參數，避免重複觸發
-        st.query_params.clear()
-        handle_card_click(clicked_index)
-        st.rerun()
-
     if st.session_state.get('mistake_timer') and time.time() - st.session_state.mistake_timer > 0.5:
         if len(st.session_state.flipped_indices) == 2:
             idx1, idx2 = st.session_state.flipped_indices
@@ -75,33 +65,22 @@ def start_game(user_email, db_update_func):
     cols = st.columns(6)
     for i, card_value in enumerate(st.session_state.game_board):
         col = cols[i % 6]
-        with col:
+        # --- 【核心修改】使用 st.container 和 st.button 來確保穩定性 ---
+        with col.container(border=True):
             card_status = st.session_state.card_status[i]
             
             if card_status in ['flipped', 'matched']:
                 image_name = f"{card_value}.jpg"
                 current_image_path = os.path.join(image_folder, image_name)
-            else:
-                current_image_path = card_back_image_path
-            
-            b64_image = image_to_base64(current_image_path)
-            
-            # --- 【核心修改】使用 st.markdown 和 HTML/CSS 建立可點擊的圖片 ---
-            if b64_image:
-                # 只有覆蓋的牌才能點擊
-                if card_status == 'hidden':
-                    html_code = f'''
-                        <a href="?card_click={i}" target="_self" style="text-decoration: none;">
-                            <img src="{b64_image}" style="width: 100%; height: 150px; object-fit: cover; border-radius: 10px; border: 2px solid #eee;">
-                        </a>
-                    '''
-                else: # 翻開的牌不能點擊
-                    html_code = f'''
-                        <div style="width: 100%; height: 150px;">
-                            <img src="{b64_image}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 10px;">
-                        </div>
-                    '''
-                st.markdown(html_code, unsafe_allow_html=True)
+                # 對於翻開的牌，直接顯示圖片，不提供按鈕
+                st.image(current_image_path, use_container_width=True)
+            else: # hidden
+                st.image(card_back_image_path, use_container_width=True)
+                # 只有覆蓋的牌才提供可點擊的按鈕
+                is_clickable = len(st.session_state.flipped_indices) < 2 and not st.session_state.get('mistake_timer')
+                if st.button("翻開", key=f"card_{i}", use_container_width=True, disabled=not is_clickable):
+                    handle_card_click(i)
+                    st.rerun()
 
 # (initialize_game, handle_card_click, reset_game_state 函式與前一版相同)
 def initialize_game():
