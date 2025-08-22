@@ -4,8 +4,6 @@ import random
 import time
 import os
 
-# --- 不再需要 Base64 轉換，移除相關函式 ---
-
 def start_game(user_email, db_update_func):
     st.title("🧠 記憶翻翻樂")
 
@@ -14,12 +12,19 @@ def start_game(user_email, db_update_func):
 
     # 遊戲結束 UI
     if st.session_state.get('game_over', False):
-        st.success(f"時間到！你成功配對了 {st.session_state.matched_pairs} 組！")
+        # 判斷是時間到還是全部完成
+        if st.session_state.matched_pairs == st.session_state.total_pairs:
+            st.balloons()
+            st.success(f"恭喜！您在時間內完成了所有配對！")
+        else:
+            st.success(f"時間到！")
+            
+        st.info(f"最終成績：成功配對 {st.session_state.matched_pairs} 組！")
         st.info(f"你獲得了 {st.session_state.matched_pairs} 個爆米花 🍿")
+
         if not st.session_state.get('reward_claimed', False):
             if db_update_func(user_email, st.session_state.matched_pairs):
                 st.session_state.reward_claimed = True
-                st.balloons()
         if st.button("返回大廳"):
             st.session_state.page = "主頁"
             reset_game_state()
@@ -32,7 +37,7 @@ def start_game(user_email, db_update_func):
     
     col1, col2 = st.columns(2)
     col1.metric(label="剩餘時間", value=f"{remaining_time} 秒")
-    col2.metric(label="已配對", value=f"{st.session_state.matched_pairs} 組")
+    col2.metric(label="已配對", value=f"{st.session_state.matched_pairs} / {st.session_state.total_pairs} 組")
 
     if remaining_time <= 0:
         st.session_state.game_over = True
@@ -49,18 +54,13 @@ def start_game(user_email, db_update_func):
         with col.container(border=True):
             card_status = st.session_state.card_status[i]
             
-            # --- 【核心修改】回歸最基礎的 st.image 和 st.button ---
-            # 1. 決定要顯示正面還是背面
             if card_status in ['flipped', 'matched']:
                 image_name = f"{card_value}.jpg"
                 current_image_path = os.path.join(image_folder, image_name)
+                st.image(current_image_path, use_container_width=True)
             else: # hidden
-                current_image_path = card_back_image_path
+                st.image(card_back_image_path, use_container_width=True)
             
-            # 2. 直接使用 st.image 顯示圖片
-            st.image(current_image_path, use_container_width=True)
-            
-            # 3. 總是顯示按鈕，但根據狀態決定是否禁用
             is_disabled = (card_status != 'hidden')
             
             if st.button("翻開", key=f"card_{i}", use_container_width=True, disabled=is_disabled):
@@ -77,6 +77,8 @@ def initialize_game():
     st.session_state.card_status = ['hidden'] * 14
     st.session_state.flipped_indices = []
     st.session_state.matched_pairs = 0
+    # --- 【新增】記錄總共有幾對 ---
+    st.session_state.total_pairs = len(base_cards)
     st.session_state.start_time = time.time()
     st.session_state.game_started = True
     st.session_state.game_over = False
@@ -107,11 +109,15 @@ def handle_card_click(index):
             st.session_state.matched_pairs += 1
             st.session_state.flipped_indices = []
 
+            # --- 【新增】檢查是否所有牌都已配對 ---
+            if st.session_state.matched_pairs == st.session_state.total_pairs:
+                st.session_state.game_over = True
+
 def reset_game_state():
     """清除遊戲相關的 session state"""
     keys_to_delete = [
         'game_board', 'card_status', 'flipped_indices', 'matched_pairs', 'start_time',
-        'game_started', 'game_over', 'reward_claimed'
+        'game_started', 'game_over', 'reward_claimed', 'total_pairs' # <- 新增
     ]
     for key in keys_to_delete:
         if key in st.session_state:
