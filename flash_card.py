@@ -12,12 +12,10 @@ def start_game(user_email, db_update_func):
     """
     st.title("🧠 記憶翻翻樂")
 
-    # --- 遊戲狀態初始化 ---
     if 'game_started' not in st.session_state or not st.session_state.game_started:
         initialize_game()
 
-    # --- 【速度優化】快速翻卡：檢查是否有計時中的翻錯卡片 ---
-    # 將延遲時間從 0.8 秒縮短為 0.5 秒，讓程式感覺更流暢、不卡頓
+    # 自動翻回計時器：如果使用者在翻錯後沒有任何操作，0.5秒後自動翻回
     if st.session_state.get('mistake_timer') and time.time() - st.session_state.mistake_timer > 0.5:
         if len(st.session_state.flipped_indices) == 2:
             idx1, idx2 = st.session_state.flipped_indices
@@ -29,7 +27,6 @@ def start_game(user_email, db_update_func):
         st.session_state.mistake_timer = None
         st.rerun()
 
-    # --- 遊戲結束 UI ---
     if st.session_state.get('game_over', False):
         st.success(f"時間到！你成功配對了 {st.session_state.matched_pairs} 組！")
         st.info(f"你獲得了 {st.session_state.matched_pairs} 個爆米花 🍿")
@@ -47,7 +44,6 @@ def start_game(user_email, db_update_func):
             st.rerun()
         return
 
-    # --- 顯示計時器和分數 ---
     elapsed_time = time.time() - st.session_state.start_time
     remaining_time = max(0, 60 - int(elapsed_time))
     
@@ -61,7 +57,6 @@ def start_game(user_email, db_update_func):
 
     st.markdown("---")
 
-    # --- 顯示遊戲板 ---
     image_folder = os.path.join("image", "flash_card")
     card_back_image = os.path.join(image_folder, "卡背.jpg")
 
@@ -75,18 +70,18 @@ def start_game(user_email, db_update_func):
         with col:
             card_status = st.session_state.card_status[i]
             
-            is_clickable = card_status == 'hidden' and len(st.session_state.flipped_indices) < 2 and not st.session_state.get('mistake_timer')
+            # --- 【核心修改】移除UI鎖定 ---
+            # 只要卡片是覆蓋的，就允許點擊。點擊後的邏輯交給 handle_card_click 處理。
+            is_clickable = (card_status == 'hidden')
 
             if card_status in ['flipped', 'matched']:
                 image_name = f"{card_value}.jpg"
                 image_path = os.path.join(image_folder, image_name)
                 try:
-                    # --- 【修復黃框】將 use_column_width 改為 use_container_width ---
                     col.image(image_path, use_container_width=True)
                 except Exception:
                     col.error(f"找不到 {image_name}")
             else: # hidden
-                # --- 【修復黃框】將 use_column_width 改為 use_container_width ---
                 col.image(card_back_image, use_container_width=True)
                 if col.button("翻開", key=f"card_{i}", use_container_width=True, disabled=not is_clickable):
                     handle_card_click(i)
@@ -113,10 +108,23 @@ def initialize_game():
 
 def handle_card_click(index):
     """處理卡片點擊事件"""
+    # --- 【核心修改】處理點擊第三張牌的邏輯 ---
+    # 如果已經有兩張翻開的牌，這次點擊會先將它們翻回去，再處理新點擊的牌
+    if len(st.session_state.flipped_indices) == 2:
+        idx1, idx2 = st.session_state.flipped_indices
+        if st.session_state.card_status[idx1] != 'matched':
+            st.session_state.card_status[idx1] = 'hidden'
+        if st.session_state.card_status[idx2] != 'matched':
+            st.session_state.card_status[idx2] = 'hidden'
+        st.session_state.flipped_indices = []
+        st.session_state.mistake_timer = None # 如果是手動重置，就取消自動計時器
+
+    # 處理當前點擊的卡片
     if st.session_state.card_status[index] == 'hidden':
         st.session_state.card_status[index] = 'flipped'
         st.session_state.flipped_indices.append(index)
     
+    # 如果翻開後剛好是第二張，檢查是否配對
     if len(st.session_state.flipped_indices) == 2:
         idx1, idx2 = st.session_state.flipped_indices
         card1 = st.session_state.game_board[idx1]
@@ -127,7 +135,8 @@ def handle_card_click(index):
             st.session_state.card_status[idx2] = 'matched'
             st.session_state.matched_pairs += 1
             st.session_state.flipped_indices = []
-        else: # 配對失敗
+            st.session_state.mistake_timer = None # 成功配對，清除計時器
+        else: # 配對失敗，啟動自動翻回計時器
             st.session_state.mistake_timer = time.time()
 
 def reset_game_state():
