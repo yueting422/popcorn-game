@@ -12,7 +12,6 @@ def start_game(user_email, db_update_func):
 
     # 遊戲結束 UI
     if st.session_state.get('game_over', False):
-        # 判斷是時間到還是全部完成
         if st.session_state.matched_pairs == st.session_state.total_pairs:
             st.balloons()
             st.success(f"恭喜！您在時間內完成了所有配對！")
@@ -33,7 +32,7 @@ def start_game(user_email, db_update_func):
 
     # 顯示計時器和分數
     elapsed_time = time.time() - st.session_state.start_time
-    remaining_time = max(0, 120 - int(elapsed_time))
+    remaining_time = max(0, 90 - int(elapsed_time))
     
     col1, col2 = st.columns(2)
     col1.metric(label="剩餘時間", value=f"{remaining_time} 秒")
@@ -48,9 +47,11 @@ def start_game(user_email, db_update_func):
     image_folder = os.path.join("image", "flash_card")
     card_back_image_path = os.path.join(image_folder, "卡背.jpg")
 
-    cols = st.columns(7)
+    # --- 【排版修改】為了對應16張卡，改為4欄佈局 ---
+    cols = st.columns(4)
     for i, card_value in enumerate(st.session_state.game_board):
-        col = cols[i % 7]
+        # --- 【排版修改】對應4欄佈局 ---
+        col = cols[i % 4]
         with col.container(border=True):
             card_status = st.session_state.card_status[i]
             
@@ -69,15 +70,16 @@ def start_game(user_email, db_update_func):
 
 def initialize_game():
     """初始化或重置遊戲"""
-    base_cards = ["1", "2", "3", "4", "5", "6", "7"]
+    # --- 【卡面修改】卡池新增 "8" ---
+    base_cards = ["1", "2", "3", "4", "5", "6", "7", "8"]
     card_pairs = [f"{c}-1" for c in base_cards] + [f"{c}-2" for c in base_cards]
     random.shuffle(card_pairs)
 
     st.session_state.game_board = card_pairs
-    st.session_state.card_status = ['hidden'] * 14
+    # --- 【卡面修改】總卡數改為 16 張 ---
+    st.session_state.card_status = ['hidden'] * 16
     st.session_state.flipped_indices = []
     st.session_state.matched_pairs = 0
-    # --- 【新增】記錄總共有幾對 ---
     st.session_state.total_pairs = len(base_cards)
     st.session_state.start_time = time.time()
     st.session_state.game_started = True
@@ -109,7 +111,6 @@ def handle_card_click(index):
             st.session_state.matched_pairs += 1
             st.session_state.flipped_indices = []
 
-            # --- 【新增】檢查是否所有牌都已配對 ---
             if st.session_state.matched_pairs == st.session_state.total_pairs:
                 st.session_state.game_over = True
 
@@ -117,7 +118,7 @@ def reset_game_state():
     """清除遊戲相關的 session state"""
     keys_to_delete = [
         'game_board', 'card_status', 'flipped_indices', 'matched_pairs', 'start_time',
-        'game_started', 'game_over', 'reward_claimed', 'total_pairs' # <- 新增
+        'game_started', 'game_over', 'reward_claimed', 'total_pairs'
     ]
     for key in keys_to_delete:
         if key in st.session_state:
