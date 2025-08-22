@@ -1,9 +1,29 @@
-# flash_card.py (使用可點擊圖片版本)
+# flash_card.py
 import streamlit as st
 import random
 import time
 import os
-from streamlit_card import card # 引入新的卡片元件
+import base64
+from pathlib import Path
+from streamlit_card import card
+
+# --- 【新功能】輔助函式：將圖片檔案轉換為 Base64 編碼 ---
+# 使用 st.cache_data 來快取圖片，提升載入速度
+@st.cache_data
+def image_to_base64(image_path: str) -> str:
+    """將圖片檔案轉換為 Base64 字串"""
+    path = Path(image_path)
+    if not path.exists():
+        st.error(f"找不到圖片檔案：{image_path}")
+        return ""
+    
+    with open(path, "rb") as img_file:
+        b64_string = base64.b64encode(img_file.read()).decode()
+    
+    # 根據副檔名決定 mime type
+    mime_type = "image/jpeg" if path.suffix.lower() in [".jpg", ".jpeg"] else "image/png"
+    
+    return f"data:{mime_type};base64,{b64_string}"
 
 def start_game(user_email, db_update_func):
     st.title("🧠 記憶翻翻樂")
@@ -14,10 +34,8 @@ def start_game(user_email, db_update_func):
     if st.session_state.get('mistake_timer') and time.time() - st.session_state.mistake_timer > 0.5:
         if len(st.session_state.flipped_indices) == 2:
             idx1, idx2 = st.session_state.flipped_indices
-            if st.session_state.card_status[idx1] != 'matched':
-                st.session_state.card_status[idx1] = 'hidden'
-            if st.session_state.card_status[idx2] != 'matched':
-                st.session_state.card_status[idx2] = 'hidden'
+            if st.session_state.card_status[idx1] != 'matched': st.session_state.card_status[idx1] = 'hidden'
+            if st.session_state.card_status[idx2] != 'matched': st.session_state.card_status[idx2] = 'hidden'
             st.session_state.flipped_indices = []
         st.session_state.mistake_timer = None
         st.rerun()
@@ -53,11 +71,7 @@ def start_game(user_email, db_update_func):
     st.markdown("---")
 
     image_folder = os.path.join("image", "flash_card")
-    card_back_image = os.path.join(image_folder, "卡背.jpg")
-
-    if not os.path.exists(card_back_image):
-        st.error(f"找不到卡背圖片: {card_back_image}")
-        st.stop()
+    card_back_image_path = os.path.join(image_folder, "卡背.jpg")
 
     cols = st.columns(6)
     for i, card_value in enumerate(st.session_state.game_board):
@@ -65,31 +79,31 @@ def start_game(user_email, db_update_func):
         with col:
             card_status = st.session_state.card_status[i]
             
-            # 決定要顯示正面還是背面圖片
             if card_status in ['flipped', 'matched']:
                 image_name = f"{card_value}.jpg"
-                image_path = os.path.join(image_folder, image_name)
+                current_image_path = os.path.join(image_folder, image_name)
             else: # hidden
-                image_path = card_back_image
+                current_image_path = card_back_image_path
             
-            # --- 【核心修改】使用 card 元件來顯示圖片 ---
-            # 這個元件會回傳 True 如果它被點擊了
-            is_clicked = card(
-                title="", text="", image=image_path,
-                styles={
-                    "card": {"width": "100%", "height": "150px", "margin": "0px"},
-                    "filter": {"background-color": "rgba(0, 0, 0, 0)"} # 移除點擊時的黑色濾鏡
-                },
-                key=f"card_{i}"
-            )
+            # --- 【核心修改】將圖片路徑轉換為 Base64 後再傳給 card 元件 ---
+            b64_image = image_to_base64(current_image_path)
             
-            # 如果卡片是隱藏狀態且被點擊了，就執行翻牌邏輯
-            if is_clicked and card_status == 'hidden':
-                handle_card_click(i)
-                st.rerun()
+            if b64_image: # 確保圖片成功轉換
+                is_clicked = card(
+                    title="", text="", image=b64_image,
+                    styles={
+                        "card": {"width": "100%", "height": "150px", "margin": "0px", "padding": "0px"},
+                        "filter": {"background-color": "rgba(0, 0, 0, 0)"},
+                        "div": {"padding": "0px"}
+                    },
+                    key=f"card_{i}"
+                )
+                
+                if is_clicked and card_status == 'hidden':
+                    handle_card_click(i)
+                    st.rerun()
 
-# (initialize_game, handle_card_click, reset_game_state 函式與前一版相同，此處省略以節省篇幅)
-# (請確保您的檔案中包含這些函式)
+# (initialize_game, handle_card_click, reset_game_state 函式與前一版相同)
 def initialize_game():
     base_cards = [
         "12", "13", "14", "15", "16", "17", "23", "24", "25", "26", "27",
