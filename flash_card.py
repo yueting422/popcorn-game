@@ -4,6 +4,8 @@ import random
 import time
 import os
 
+# --- 不再需要 Base64 轉換，移除相關函式 ---
+
 def start_game(user_email, db_update_func):
     st.title("🧠 記憶翻翻樂")
 
@@ -41,13 +43,13 @@ def start_game(user_email, db_update_func):
     image_folder = os.path.join("image", "flash_card")
     card_back_image_path = os.path.join(image_folder, "卡背.jpg")
 
-    cols = st.columns(6)
+    cols = st.columns(7)
     for i, card_value in enumerate(st.session_state.game_board):
-        col = cols[i % 6]
+        col = cols[i % 7]
         with col.container(border=True):
             card_status = st.session_state.card_status[i]
             
-            # --- 【排版修改】統一渲染邏輯 ---
+            # --- 【核心修改】回歸最基礎的 st.image 和 st.button ---
             # 1. 決定要顯示正面還是背面
             if card_status in ['flipped', 'matched']:
                 image_name = f"{card_value}.jpg"
@@ -55,11 +57,10 @@ def start_game(user_email, db_update_func):
             else: # hidden
                 current_image_path = card_back_image_path
             
-            # 2. 顯示圖片
+            # 2. 直接使用 st.image 顯示圖片
             st.image(current_image_path, use_container_width=True)
             
             # 3. 總是顯示按鈕，但根據狀態決定是否禁用
-            # 只有當卡片是覆蓋 ('hidden') 狀態時，按鈕才可點擊
             is_disabled = (card_status != 'hidden')
             
             if st.button("翻開", key=f"card_{i}", use_container_width=True, disabled=is_disabled):
@@ -68,16 +69,12 @@ def start_game(user_email, db_update_func):
 
 def initialize_game():
     """初始化或重置遊戲"""
-    base_cards = [
-        "12-1", "13-1", "14-1", "15-1", "16-1", "17-1", "23-1", "24-1", 
-        "25-1", "26-1", "27-1", "34-1", "35-1", "36-1", "37-1", "45-1", 
-        "46-1", "47-1", "56-1", "57-1", "67-1"
-    ]
-    card_pairs = base_cards * 2
+    base_cards = ["1", "2", "3", "4", "5", "6", "7"]
+    card_pairs = [f"{c}-1" for c in base_cards] + [f"{c}-2" for c in base_cards]
     random.shuffle(card_pairs)
 
     st.session_state.game_board = card_pairs
-    st.session_state.card_status = ['hidden'] * 42
+    st.session_state.card_status = ['hidden'] * 14
     st.session_state.flipped_indices = []
     st.session_state.matched_pairs = 0
     st.session_state.start_time = time.time()
@@ -104,7 +101,7 @@ def handle_card_click(index):
         card1 = st.session_state.game_board[idx1]
         card2 = st.session_state.game_board[idx2]
         
-        if card1 == card2: # 配對成功
+        if card1.split('-')[0] == card2.split('-')[0]: # 配對成功
             st.session_state.card_status[idx1] = 'matched'
             st.session_state.card_status[idx2] = 'matched'
             st.session_state.matched_pairs += 1
