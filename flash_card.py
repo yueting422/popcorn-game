@@ -16,8 +16,9 @@ def start_game(user_email, db_update_func):
     if 'game_started' not in st.session_state or not st.session_state.game_started:
         initialize_game()
 
-    # --- 快速翻卡：檢查是否有計時中的翻錯卡片 ---
-    if st.session_state.get('mistake_timer') and time.time() - st.session_state.mistake_timer > 0.8:
+    # --- 【速度優化】快速翻卡：檢查是否有計時中的翻錯卡片 ---
+    # 將延遲時間從 0.8 秒縮短為 0.5 秒，讓程式感覺更流暢、不卡頓
+    if st.session_state.get('mistake_timer') and time.time() - st.session_state.mistake_timer > 0.5:
         if len(st.session_state.flipped_indices) == 2:
             idx1, idx2 = st.session_state.flipped_indices
             if st.session_state.card_status[idx1] != 'matched':
@@ -68,10 +69,8 @@ def start_game(user_email, db_update_func):
         st.error(f"找不到卡背圖片: {card_back_image}")
         st.stop()
 
-    # --- 【排版修改】將版面改為 6 欄 ---
     cols = st.columns(6)
     for i, card_value in enumerate(st.session_state.game_board):
-        # --- 【排版修改】對應 6 欄佈局 ---
         col = cols[i % 6]
         with col:
             card_status = st.session_state.card_status[i]
@@ -82,11 +81,13 @@ def start_game(user_email, db_update_func):
                 image_name = f"{card_value}.jpg"
                 image_path = os.path.join(image_folder, image_name)
                 try:
-                    col.image(image_path, use_column_width=True)
+                    # --- 【修復黃框】將 use_column_width 改為 use_container_width ---
+                    col.image(image_path, use_container_width=True)
                 except Exception:
                     col.error(f"找不到 {image_name}")
             else: # hidden
-                col.image(card_back_image, use_column_width=True)
+                # --- 【修復黃框】將 use_column_width 改為 use_container_width ---
+                col.image(card_back_image, use_container_width=True)
                 if col.button("翻開", key=f"card_{i}", use_container_width=True, disabled=not is_clickable):
                     handle_card_click(i)
                     st.rerun()
@@ -108,7 +109,7 @@ def initialize_game():
     st.session_state.game_started = True
     st.session_state.game_over = False
     st.session_state.reward_claimed = False
-    st.session_state.mistake_timer = None # 用於快速翻卡的計時器
+    st.session_state.mistake_timer = None
 
 def handle_card_click(index):
     """處理卡片點擊事件"""
