@@ -26,7 +26,6 @@ def start_game(user_email, db_update_func):
 
     # 顯示計時器和分數
     elapsed_time = time.time() - st.session_state.start_time
-    # --- 【時間修改】將遊戲時間延長到 120 秒 ---
     remaining_time = max(0, 120 - int(elapsed_time))
     
     col1, col2 = st.columns(2)
@@ -48,26 +47,32 @@ def start_game(user_email, db_update_func):
         with col.container(border=True):
             card_status = st.session_state.card_status[i]
             
+            # --- 【排版修改】統一渲染邏輯 ---
+            # 1. 決定要顯示正面還是背面
             if card_status in ['flipped', 'matched']:
-                # 卡面圖片名稱直接使用 card_value
                 image_name = f"{card_value}.jpg"
                 current_image_path = os.path.join(image_folder, image_name)
-                st.image(current_image_path, use_container_width=True)
             else: # hidden
-                st.image(card_back_image_path, use_container_width=True)
-                if st.button("翻開", key=f"card_{i}", use_container_width=True):
-                    handle_card_click(i)
-                    st.rerun()
+                current_image_path = card_back_image_path
+            
+            # 2. 顯示圖片
+            st.image(current_image_path, use_container_width=True)
+            
+            # 3. 總是顯示按鈕，但根據狀態決定是否禁用
+            # 只有當卡片是覆蓋 ('hidden') 狀態時，按鈕才可點擊
+            is_disabled = (card_status != 'hidden')
+            
+            if st.button("翻開", key=f"card_{i}", use_container_width=True, disabled=is_disabled):
+                handle_card_click(i)
+                st.rerun()
 
 def initialize_game():
     """初始化或重置遊戲"""
-    # --- 【卡面修改】卡池改為 XX-1 的卡片 ---
     base_cards = [
         "12-1", "13-1", "14-1", "15-1", "16-1", "17-1", "23-1", "24-1", 
         "25-1", "26-1", "27-1", "34-1", "35-1", "36-1", "37-1", "45-1", 
         "46-1", "47-1", "56-1", "57-1", "67-1"
     ]
-    # --- 【卡面修改】每張卡片都複製一份，組成牌組 ---
     card_pairs = base_cards * 2
     random.shuffle(card_pairs)
 
@@ -82,7 +87,6 @@ def initialize_game():
 
 def handle_card_click(index):
     """處理卡片點擊事件"""
-    # 如果場上已有兩張翻開的牌，則先將它們翻回去
     if len(st.session_state.flipped_indices) == 2:
         idx1, idx2 = st.session_state.flipped_indices
         if st.session_state.card_status[idx1] != 'matched':
@@ -91,18 +95,15 @@ def handle_card_click(index):
             st.session_state.card_status[idx2] = 'hidden'
         st.session_state.flipped_indices = []
 
-    # 翻開當前點擊的牌
     if st.session_state.card_status[index] == 'hidden':
         st.session_state.card_status[index] = 'flipped'
         st.session_state.flipped_indices.append(index)
 
-    # 如果翻開後剛好是第二張，檢查是否配對
     if len(st.session_state.flipped_indices) == 2:
         idx1, idx2 = st.session_state.flipped_indices
         card1 = st.session_state.game_board[idx1]
         card2 = st.session_state.game_board[idx2]
         
-        # --- 【卡面修改】配對邏輯改為直接比較字串是否完全相同 ---
         if card1 == card2: # 配對成功
             st.session_state.card_status[idx1] = 'matched'
             st.session_state.card_status[idx2] = 'matched'
