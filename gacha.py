@@ -22,12 +22,20 @@ def get_all_cards_in_pool(pool_name):
         if rarity_path.is_dir():
             all_cards[rarity] = sorted([p.as_posix() for p in rarity_path.glob('*.jpg')])
             
+    # 獲取預設卡背
     card_back_path = base_path / "卡背.jpg"
     if card_back_path.exists():
         all_cards['card_back'] = card_back_path.as_posix()
     else:
         all_cards['card_back'] = None 
-        
+    
+    # --- 【新增】獲取 R 卡的專屬卡背 ---
+    r_card_back_path = base_path / "R" / "卡背2.jpg"
+    if r_card_back_path.exists():
+        all_cards['R_card_back'] = r_card_back_path.as_posix()
+    else:
+        all_cards['R_card_back'] = None
+
     return all_cards
 
 def save_cards_to_db(username, drawn_cards, db):
@@ -56,14 +64,7 @@ def perform_draw(pool_name, num_draws, username, current_popcorn, db_update_func
     time.sleep(1)
 
     pool_cards = get_all_cards_in_pool(pool_name)
-    
-    # --- 【配率修改】更新單抽的機率 ---
-    probabilities = {
-        'R': 80,
-        'SR': 15,
-        'SSR': 4,
-        'SP': 1
-    }
+    probabilities = {'R': 80, 'SR': 15, 'SSR': 4, 'SP': 1}
     rarities = list(probabilities.keys())
     weights = list(probabilities.values())
     
@@ -80,19 +81,16 @@ def perform_draw(pool_name, num_draws, username, current_popcorn, db_update_func
             return draw_one_card(r_list, w_list)
 
     if num_draws == 10:
-        # --- 【配率修改】更新十連抽保底的機率 (保底SR以上) ---
         guaranteed_rarity = random.choices(['SR', 'SSR', 'SP'], weights=[80, 17, 3], k=1)[0]
-
         if pool_cards.get(guaranteed_rarity) and pool_cards[guaranteed_rarity]:
             drawn_cards.append(random.choice(pool_cards[guaranteed_rarity]))
         else:
              st.warning(f"警告：找不到保底稀有度 {guaranteed_rarity} 的卡片，將改為普通抽卡...")
              drawn_cards.append(draw_one_card())
         
-        # 再抽剩下的 9 張
         for _ in range(9):
             drawn_cards.append(draw_one_card())
-    else: # 單抽
+    else:
         for _ in range(num_draws):
             drawn_cards.append(draw_one_card())
             
@@ -103,15 +101,11 @@ def perform_draw(pool_name, num_draws, username, current_popcorn, db_update_func
 # --- UI Functions ---
 
 def show_draw_page(pool_name, username, current_popcorn, db_update_func, db):
-    """顯示指定卡池的抽卡介面"""
     st.header(f"卡池: {pool_name}")
-
     if st.button("⬅️ 返回卡池選擇"):
         st.session_state.gacha_page = 'main_menu'
         st.rerun()
-
     st.markdown("---")
-    
     if st.session_state.get('last_draw_results'):
         st.subheader("🎉 抽卡結果 🎉")
         cols = st.columns(5)
@@ -121,7 +115,6 @@ def show_draw_page(pool_name, username, current_popcorn, db_update_func, db):
                 st.image(card_path, use_container_width=True)
         st.session_state.last_draw_results = None
         st.markdown("---")
-
     st.info(f"每次抽卡消耗 10 🍿，十連抽消耗 100 🍿。")
     col1, col2 = st.columns(2)
     with col1:
@@ -153,11 +146,9 @@ def show_collection_page(username, db):
                 st.rerun()
     else:
         selected_pool = st.session_state.collection_selected_pool
-        
         if st.button(f"⬅️ 返回卡冊主頁"):
             st.session_state.collection_selected_pool = None
             st.rerun()
-        
         st.subheader(f"卡池: {selected_pool}")
         show_owned_only = st.checkbox("✅ 僅顯示已擁有", key=f"filter_{selected_pool}")
         
@@ -169,10 +160,8 @@ def show_collection_page(username, db):
             st.error(f"讀取卡冊資料失敗: {e}")
             return
         
-        card_back = pool_data.get('card_back')
-        if not card_back:
-            st.warning(f"找不到「{selected_pool}」的卡背圖片，無法顯示未擁有卡片。")
-            return
+        default_card_back = pool_data.get('card_back')
+        r_card_back = pool_data.get('R_card_back')
 
         rarities_to_show = ['SP', 'SSR', 'SR', 'R']
         for rarity in rarities_to_show:
@@ -181,50 +170,46 @@ def show_collection_page(username, db):
                 owned_in_rarity = [card for card in cards_in_rarity if card in owned_cards]
                 if show_owned_only and not owned_in_rarity:
                     continue
-
                 st.markdown(f"**{rarity} ({len(owned_in_rarity)} / {len(cards_in_rarity)})**")
                 cols = st.columns(6)
-                
                 col_index = 0
                 for card_path in cards_in_rarity:
                     count = owned_cards.get(card_path, 0)
                     if show_owned_only and count == 0:
                         continue
-                    
                     with cols[col_index % 6]:
                         if count > 0:
                             st.image(card_path, caption=f"擁有: {count}", use_container_width=True)
                         else:
-                            st.image(card_back, caption="未擁有", use_container_width=True)
+                            # --- 【核心修改】判斷 R 卡並使用不同的卡背 ---
+                            if rarity == 'R' and r_card_back:
+                                st.image(r_card_back, caption="未擁有", use_container_width=True)
+                            elif default_card_back:
+                                st.image(default_card_back, caption="未擁有", use_container_width=True)
+                            else:
+                                st.caption("卡背遺失")
                     col_index += 1
         st.markdown("---")
 
 def show_main_menu(username, db):
     st.header("🎁 卡池選擇")
-
     if st.button("⬅️ 返回遊戲大廳"):
         st.session_state.page = "主頁"
         st.rerun()
         return
-
     st.markdown("---")
-    
     if st.button("📚 查看我的卡冊"):
         st.session_state.gacha_page = 'collection_page'
         st.session_state.collection_selected_pool = None
         st.rerun()
-        
     st.markdown("---")
-
     pools = ["春日記憶", "夏日記憶", "秋日記憶", "冬日記憶"]
     cols = st.columns(len(pools))
-    
     for i, pool_name in enumerate(pools):
         with cols[i]:
             pool_image_path = Path(f"image/gacha/{pool_name}/卡池封面.jpg")
             if pool_image_path.exists():
                 st.image(pool_image_path.as_posix(), use_container_width=True)
-            
             if st.button(pool_name, key=pool_name, use_container_width=True):
                 if pool_name == "春日記憶":
                     st.session_state.gacha_page = 'draw_page'
