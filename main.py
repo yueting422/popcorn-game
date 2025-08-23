@@ -6,15 +6,14 @@ from passlib.hash import pbkdf2_sha256 # 用於密碼雜湊與驗證
 
 # 引入遊戲模組
 import flash_card
+import more_less # <-- 新增：引入比大小遊戲
 
 # --- 網頁基礎設定 ---
 st.set_page_config(page_title="爆米花遊樂場", page_icon="🍿", layout="wide")
 
 # --- Firebase 初始化 ---
 try:
-    # 檢查 st.session_state 中是否已存在 db 物件，避免重複初始化
     if 'db' not in st.session_state:
-        # 從 Streamlit Secrets 讀取憑證，這是部署的標準做法
         creds_dict = {
             "type": st.secrets["firebase_credentials"]["type"],
             "project_id": st.secrets["firebase_credentials"]["project_id"],
@@ -28,21 +27,17 @@ try:
             "client_x509_cert_url": st.secrets["firebase_credentials"]["client_x509_cert_url"],
         }
         cred = credentials.Certificate(creds_dict)
-        # 檢查 Firebase app 是否已經初始化
         if not firebase_admin._apps:
             firebase_admin.initialize_app(cred)
-        # 將 db client 存入 session_state
         st.session_state['db'] = firestore.client()
 except Exception as e:
     st.error("Firebase 初始化失敗，請檢查 Streamlit Secrets 中的金鑰設定。")
     st.error(e)
-    # 如果初始化失敗，則停止應用程式執行
     st.stop()
 
-# 從 session_state 中取得 db client
 db = st.session_state['db']
 
-# --- 登入與註冊邏輯 (來自 app.py) ---
+# --- 登入與註冊邏輯 ---
 def show_login_register_page():
     st.title("🍿 歡迎來到爆米花遊樂場")
     login_tab, register_tab = st.tabs(["登入 (Login)", "註冊 (Register)"])
@@ -63,12 +58,11 @@ def show_login_register_page():
                         st.error("使用者不存在！")
                     else:
                         user_data = user_ref.to_dict()
-                        # 驗證雜湊後的密碼
                         if pbkdf2_sha256.verify(password, user_data.get('password_hash', '')):
                             st.session_state['authentication_status'] = True
                             st.session_state['username'] = username
                             st.session_state['name'] = user_data.get('name', username)
-                            st.session_state['popcorn'] = user_data.get('popcorn', 0) # 登入時讀取爆米花數量
+                            st.session_state['popcorn'] = user_data.get('popcorn', 0)
                             st.rerun()
                         else:
                             st.error("密碼不正確！")
@@ -94,9 +88,7 @@ def show_login_register_page():
                     if user_ref.get().exists:
                         st.error("此使用者名稱已被註冊！")
                     else:
-                        # 將密碼進行雜湊加密
                         password_hash = pbkdf2_sha256.hash(new_password)
-                        # 建立使用者資料，並給予初始 100 爆米花
                         user_data = {
                             "name": new_name, 
                             "password_hash": password_hash,
@@ -107,18 +99,15 @@ def show_login_register_page():
 
 # --- 主應用程式邏輯 ---
 def main_app():
-    # 將歡迎訊息和登出按鈕放在側邊欄
     st.sidebar.title(f"歡迎, {st.session_state['name']}!")
     st.sidebar.write(f"您目前擁有 {st.session_state.get('popcorn', 0)} 🍿")
     if st.sidebar.button("登出"):
-        # 清空 session state 以登出
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
     
     st.sidebar.markdown("---")
 
-    # 遊戲頁面導航
     if 'page' not in st.session_state:
         st.session_state.page = "主頁"
         
@@ -128,14 +117,18 @@ def main_app():
         if st.button("🧠 記憶翻翻樂"):
             st.session_state.page = "翻翻樂"
             st.rerun()
-        if st.button("⚖️ 比大小 (尚未開放)"):
-            st.info("此遊戲正在開發中，敬請期待！")
+            
+        # --- 修改：啟用比大小遊戲按鈕 ---
+        if st.button("⚖️ 比大小"):
+            st.session_state.page = "比大小"
+            st.rerun()
 
     elif st.session_state.page == "翻翻樂":
-        # 呼叫 flash_card 模組中的函式來玩遊戲
-        # 將 username 傳遞給遊戲，以便更新分數
-        update_popcorn_func = lambda username, amount: db.collection('users').document(username).update({'popcorn': firestore.Increment(amount)})
         flash_card.start_game(st.session_state['username'], update_popcorn_in_db)
+    
+    # --- 新增：導航到比大小遊戲 ---
+    elif st.session_state.page == "比大小":
+        more_less.start_game(st.session_state['username'], update_popcorn_in_db)
 
 
 def update_popcorn_in_db(username, amount):
@@ -143,18 +136,17 @@ def update_popcorn_in_db(username, amount):
     try:
         user_ref = db.collection('users').document(username)
         user_ref.update({'popcorn': firestore.Increment(amount)})
-        st.session_state.popcorn += amount # 同時更新 session_state
+        # 直接更新 session_state 中的值
+        st.session_state.popcorn = st.session_state.get('popcorn', 0) + amount
         return True
     except Exception as e:
         st.error(f"更新爆米花失敗: {e}")
         return False
 
 # --- 程式進入點 ---
-# 檢查 session_state 中是否已定義 'authentication_status'
 if 'authentication_status' not in st.session_state:
     st.session_state['authentication_status'] = None
 
-# 根據登入狀態顯示不同頁面
 if st.session_state.get('authentication_status'):
     main_app()
 else:
