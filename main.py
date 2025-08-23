@@ -3,6 +3,7 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 from passlib.hash import pbkdf2_sha256
+import time # <-- 【修正】新增這一行，引入 time 模組
 
 # 引入遊戲模組
 import flash_card
@@ -97,11 +98,10 @@ def show_login_register_page():
                         user_ref.set(user_data)
                         st.success("註冊成功！請前往登入分頁進行登入。")
 
-# --- 【新增】刪除帳號後端邏輯 ---
+# --- 刪除帳號後端邏輯 ---
 def delete_user_account():
     username = st.session_state['username']
     
-    # 從 session state 獲取密碼和確認文字，避免重複創建 widget
     password = st.session_state.get("delete_password", "")
     confirmation = st.session_state.get("delete_confirm", "")
 
@@ -112,22 +112,18 @@ def delete_user_account():
 
     user_data = user_ref.to_dict()
 
-    # 1. 驗證密碼
     if not pbkdf2_sha256.verify(password, user_data.get('password_hash', '')):
         st.sidebar.error("密碼不正確！無法刪除帳號。")
         return
     
-    # 2. 驗證確認文字
     if confirmation.strip().upper() != 'DELETE':
         st.sidebar.error("確認文字不符，請輸入 'DELETE'。")
         return
 
-    # 3. 執行刪除
     try:
         db.collection('users').document(username).delete()
         st.success("您的帳號與所有資料已成功刪除。")
-        time.sleep(2) # 暫停兩秒讓使用者看到訊息
-        # 登出並返回登入頁面
+        time.sleep(2)
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
@@ -146,7 +142,6 @@ def main_app():
     
     st.sidebar.markdown("---")
     
-    # --- 【新增】帳號管理區塊 ---
     with st.sidebar.expander("⚙️ 帳號管理"):
         st.warning("注意：刪除帳號將會永久移除您的所有資料，此操作無法復原。")
         st.text_input("請輸入您的密碼以進行驗證", type="password", key="delete_password")
@@ -155,7 +150,6 @@ def main_app():
 
     st.sidebar.markdown("---")
 
-    # --- 【新增】圖源與開發者資訊 ---
     st.sidebar.caption("圖源皆來自微博 : 小姚宋敏")
     st.sidebar.caption("程式開發者 : 玥庭(IG : lyw._.sxh)")
 
