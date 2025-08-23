@@ -3,11 +3,12 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 from passlib.hash import pbkdf2_sha256
-import time # <-- 【修正】新增這一行，引入 time 模組
+import time
 
 # 引入遊戲模組
 import flash_card
 import more_less
+import gacha # <-- 新增：引入抽卡遊戲
 
 # --- 網頁基礎設定 ---
 st.set_page_config(page_title="爆米花遊樂場", page_icon="🍿", layout="wide")
@@ -121,7 +122,14 @@ def delete_user_account():
         return
 
     try:
+        # 刪除 Firestore 中的卡片子集合 (如果存在)
+        cards_ref = db.collection('users').document(username).collection('cards')
+        for doc in cards_ref.stream():
+            doc.reference.delete()
+        
+        # 刪除使用者主文件
         db.collection('users').document(username).delete()
+        
         st.success("您的帳號與所有資料已成功刪除。")
         time.sleep(2)
         for key in list(st.session_state.keys()):
@@ -167,11 +175,20 @@ def main_app():
             st.session_state.page = "比大小"
             st.rerun()
 
+        # --- 新增：抽卡遊戲按鈕 ---
+        if st.button("🎰 抽卡遊戲"):
+            st.session_state.page = "抽卡"
+            st.rerun()
+
     elif st.session_state.page == "翻翻樂":
         flash_card.start_game(st.session_state['username'], update_popcorn_in_db)
     
     elif st.session_state.page == "比大小":
         more_less.start_game(st.session_state['username'], update_popcorn_in_db)
+
+    # --- 新增：導航到抽卡遊戲 ---
+    elif st.session_state.page == "抽卡":
+        gacha.start_game(st.session_state['username'], update_popcorn_in_db)
 
 
 def update_popcorn_in_db(username, amount):
