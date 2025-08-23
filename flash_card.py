@@ -6,7 +6,6 @@ import os
 
 def start_game(user_email, db_update_func):
     st.title("🧠 記憶翻翻樂")
-    st.info("💡 建議使用電腦遊玩，以獲得最佳 4x4 格狀體驗。")
 
     if 'game_started' not in st.session_state or not st.session_state.game_started:
         initialize_game()
@@ -48,36 +47,36 @@ def start_game(user_email, db_update_func):
     image_folder = os.path.join("image", "flash_card")
     card_back_image_path = os.path.join(image_folder, "卡背.jpg")
 
-    # 使用 Streamlit 原生的 st.columns 進行排版
+    # --- 【排版修改】為了對應16張卡，改為4欄佈局 ---
     cols = st.columns(4)
     for i, card_value in enumerate(st.session_state.game_board):
+        # --- 【排版修改】對應4欄佈局 ---
         col = cols[i % 4]
         with col.container(border=True):
             card_status = st.session_state.card_status[i]
             
-            # 決定顯示正面或背面圖片
             if card_status in ['flipped', 'matched']:
                 image_name = f"{card_value}.jpg"
                 current_image_path = os.path.join(image_folder, image_name)
+                st.image(current_image_path, use_container_width=True)
             else: # hidden
-                current_image_path = card_back_image_path
+                st.image(card_back_image_path, use_container_width=True)
             
-            # 使用最基礎的 st.image 顯示
-            st.image(current_image_path, use_container_width=True)
-            
-            # 使用最基礎的 st.button 互動，並在翻開後禁用以維持排版
             is_disabled = (card_status != 'hidden')
+            
             if st.button("翻開", key=f"card_{i}", use_container_width=True, disabled=is_disabled):
                 handle_card_click(i)
                 st.rerun()
 
 def initialize_game():
     """初始化或重置遊戲"""
+    # --- 【卡面修改】卡池新增 "8" ---
     base_cards = ["1", "2", "3", "4", "5", "6", "7", "8"]
-    card_pairs = base_cards * 2
+    card_pairs = [f"{c}-1" for c in base_cards] + [f"{c}-2" for c in base_cards]
     random.shuffle(card_pairs)
 
     st.session_state.game_board = card_pairs
+    # --- 【卡面修改】總卡數改為 16 張 ---
     st.session_state.card_status = ['hidden'] * 16
     st.session_state.flipped_indices = []
     st.session_state.matched_pairs = 0
@@ -106,7 +105,7 @@ def handle_card_click(index):
         card1 = st.session_state.game_board[idx1]
         card2 = st.session_state.game_board[idx2]
         
-        if card1 == card2: # 配對成功
+        if card1.split('-')[0] == card2.split('-')[0]: # 配對成功
             st.session_state.card_status[idx1] = 'matched'
             st.session_state.card_status[idx2] = 'matched'
             st.session_state.matched_pairs += 1
