@@ -7,7 +7,7 @@ import time
 def start_game(user_email, db_update_func):
     """開始比大小遊戲"""
     st.title("⚖️ 比大小")
-    st.info("💡 遊戲規則：下注後選擇一張牌，再猜測您的牌比電腦的牌大還是小。")
+    st.info("💡 遊戲規則：下注後選擇一張牌，再猜測您的牌中人物年齡比電腦的大還是小。")
 
     # --- 遊戲狀態初始化 ---
     if 'mg_stage' not in st.session_state:
@@ -136,10 +136,11 @@ def show_reveal_stage(user_email, db_update_func):
 
     col1, col2 = st.columns(2)
     with col1:
-        st.markdown(f"<h4 style='text-align: center;'>您的牌是 {st.session_state.mg_player_card}</h4>", unsafe_allow_html=True)
+        st.markdown(f"<h4 style='text-align: center;'>您的牌</h4>", unsafe_allow_html=True)
         st.image(player_card_path, use_container_width=True)
     with col2:
-        st.markdown(f"<h4 style='text-align: center;'>電腦的牌是 {st.session_state.mg_computer_card}</h4>", unsafe_allow_html=True)
+        st.markdown(f"<h4 style='text-align: center;'>電腦的牌</h4>", unsafe_allow_html=True)
+        st.image(computer_card_path, use_container_width=True)
     
     st.markdown("---")
 
