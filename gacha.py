@@ -6,7 +6,7 @@ from pathlib import Path
 from firebase_admin import firestore
 import time
 
-# --- Helper Functions (維持不變) ---
+# --- Helper Functions ---
 
 @st.cache_data
 def get_all_cards_in_pool(pool_name):
@@ -42,7 +42,7 @@ def save_cards_to_db(username, drawn_cards, db):
         card_ref = user_ref.collection('cards').document(doc_id)
         card_ref.set({'path': card_path, 'count': firestore.Increment(1)}, merge=True)
 
-# --- Core Game Logic (維持不變) ---
+# --- Core Game Logic ---
 
 def perform_draw(pool_name, num_draws, username, current_popcorn, db_update_func, db):
     """執行抽卡邏輯，包含機率計算和保底"""
@@ -56,7 +56,14 @@ def perform_draw(pool_name, num_draws, username, current_popcorn, db_update_func
     time.sleep(1)
 
     pool_cards = get_all_cards_in_pool(pool_name)
-    probabilities = {'R': 60, 'SR': 25, 'SSR': 10, 'SP': 5}
+    
+    # --- 【配率修改】更新單抽的機率 ---
+    probabilities = {
+        'R': 80,
+        'SR': 15,
+        'SSR': 4,
+        'SP': 1
+    }
     rarities = list(probabilities.keys())
     weights = list(probabilities.values())
     
@@ -66,23 +73,26 @@ def perform_draw(pool_name, num_draws, username, current_popcorn, db_update_func
         r_list = custom_rarities or rarities
         w_list = custom_weights or weights
         chosen_rarity = random.choices(r_list, weights=w_list, k=1)[0]
-        if pool_cards.get(chosen_rarity):
+        if pool_cards.get(chosen_rarity) and pool_cards[chosen_rarity]:
             return random.choice(pool_cards[chosen_rarity])
         else:
             st.warning(f"警告：找不到稀有度為 {chosen_rarity} 的卡片，將重新抽取...")
-            return draw_one_card()
+            return draw_one_card(r_list, w_list)
 
     if num_draws == 10:
-        guaranteed_rarity = random.choices(['SSR', 'SP'], weights=[90, 10], k=1)[0]
-        if pool_cards.get(guaranteed_rarity):
+        # --- 【配率修改】更新十連抽保底的機率 (保底SR以上) ---
+        guaranteed_rarity = random.choices(['SR', 'SSR', 'SP'], weights=[80, 17, 3], k=1)[0]
+
+        if pool_cards.get(guaranteed_rarity) and pool_cards[guaranteed_rarity]:
             drawn_cards.append(random.choice(pool_cards[guaranteed_rarity]))
         else:
              st.warning(f"警告：找不到保底稀有度 {guaranteed_rarity} 的卡片，將改為普通抽卡...")
              drawn_cards.append(draw_one_card())
         
+        # 再抽剩下的 9 張
         for _ in range(9):
             drawn_cards.append(draw_one_card())
-    else:
+    else: # 單抽
         for _ in range(num_draws):
             drawn_cards.append(draw_one_card())
             
@@ -90,7 +100,7 @@ def perform_draw(pool_name, num_draws, username, current_popcorn, db_update_func
     save_cards_to_db(username, drawn_cards, db)
     return drawn_cards
 
-# --- UI Functions (部分修改) ---
+# --- UI Functions ---
 
 def show_draw_page(pool_name, username, current_popcorn, db_update_func, db):
     """顯示指定卡池的抽卡介面"""
@@ -121,29 +131,27 @@ def show_draw_page(pool_name, username, current_popcorn, db_update_func, db):
                 st.session_state.last_draw_results = results
                 st.rerun()
     with col2:
-        if st.button("十連抽 (保底 SSR 以上！)", use_container_width=True, type="primary"):
+        if st.button("十連抽 (保底 SR 以上！)", use_container_width=True, type="primary"):
             results = perform_draw(pool_name, 10, username, current_popcorn, db_update_func, db)
             if results:
                 st.session_state.last_draw_results = results
                 st.rerun()
 
-# --- 【核心修改】卡冊顯示邏輯 ---
 def show_collection_page(username, db):
     st.header("📚 我的卡冊")
     if st.button("⬅️ 返回抽卡主選單"):
         st.session_state.gacha_page = 'main_menu'
-        st.session_state.collection_selected_pool = None # 離開時重置
+        st.session_state.collection_selected_pool = None
         st.rerun()
 
-    # 如果還沒有選擇卡池，顯示卡池列表
     if st.session_state.collection_selected_pool is None:
         st.subheader("請選擇要查看的卡池")
-        pool_names = ["春日記憶"] # 未來可擴充
+        pool_names = ["春日記憶"]
         for pool in pool_names:
             if st.button(pool, use_container_width=True):
                 st.session_state.collection_selected_pool = pool
                 st.rerun()
-    else: # 如果已經選擇了卡池，顯示該卡池的詳細內容
+    else:
         selected_pool = st.session_state.collection_selected_pool
         
         if st.button(f"⬅️ 返回卡冊主頁"):
@@ -151,11 +159,8 @@ def show_collection_page(username, db):
             st.rerun()
         
         st.subheader(f"卡池: {selected_pool}")
-
-        # 篩選器
         show_owned_only = st.checkbox("✅ 僅顯示已擁有", key=f"filter_{selected_pool}")
         
-        # 獲取卡片資料
         pool_data = get_all_cards_in_pool(selected_pool)
         try:
             cards_ref = db.collection('users').document(username).collection('cards').stream()
@@ -172,39 +177,41 @@ def show_collection_page(username, db):
         rarities_to_show = ['SP', 'SSR', 'SR', 'R']
         for rarity in rarities_to_show:
             if pool_data.get(rarity):
-                
-                # 過濾出此稀有度中擁有的卡，用於顯示標題
                 cards_in_rarity = pool_data[rarity]
                 owned_in_rarity = [card for card in cards_in_rarity if card in owned_cards]
-                
-                # 如果篩選開啟且一張都沒有，則不顯示此稀有度區塊
                 if show_owned_only and not owned_in_rarity:
                     continue
 
                 st.markdown(f"**{rarity} ({len(owned_in_rarity)} / {len(cards_in_rarity)})**")
                 cols = st.columns(6)
                 
-                for i, card_path in enumerate(cards_in_rarity):
+                col_index = 0
+                for card_path in cards_in_rarity:
                     count = owned_cards.get(card_path, 0)
-                    
-                    # 根據篩選器決定是否顯示
                     if show_owned_only and count == 0:
                         continue
                     
-                    with cols[i % 6]:
+                    with cols[col_index % 6]:
                         if count > 0:
                             st.image(card_path, caption=f"擁有: {count}", use_container_width=True)
                         else:
                             st.image(card_back, caption="未擁有", use_container_width=True)
+                    col_index += 1
         st.markdown("---")
-
 
 def show_main_menu(username, db):
     st.header("🎁 卡池選擇")
+
+    if st.button("⬅️ 返回遊戲大廳"):
+        st.session_state.page = "主頁"
+        st.rerun()
+        return
+
+    st.markdown("---")
     
     if st.button("📚 查看我的卡冊"):
         st.session_state.gacha_page = 'collection_page'
-        st.session_state.collection_selected_pool = None # 進入卡冊時先到選擇頁
+        st.session_state.collection_selected_pool = None
         st.rerun()
         
     st.markdown("---")
