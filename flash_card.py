@@ -20,12 +20,13 @@ def image_to_base64(image_path: str) -> str:
 
 def start_game(user_email, db_update_func):
     st.title("🧠 記憶翻翻樂")
+    
+    # --- 【新增】加上提示訊息 ---
+    st.info("💡 建議使用電腦或將手機橫置遊玩，以獲得最佳體驗。")
 
     if 'game_started' not in st.session_state or not st.session_state.game_started:
         initialize_game()
 
-    # --- 【核心修改】使用 st.query_params 處理點擊事件 ---
-    # 這是配合自訂 HTML 點擊最穩定的方法
     params = st.query_params
     if "card_click" in params:
         clicked_index = int(params["card_click"])
@@ -63,7 +64,6 @@ def start_game(user_email, db_update_func):
 
     st.markdown("---")
 
-    # --- 【核心修改】注入 CSS 樣式來定義 4x4 網格 ---
     st.markdown("""
         <style>
             .card-grid {
@@ -95,12 +95,12 @@ def start_game(user_email, db_update_func):
     image_folder = os.path.join("image", "flash_card")
     card_back_image_path = os.path.join(image_folder, "卡背.jpg")
 
-    # --- 【核心修改】建立一個包含所有卡片 HTML 的字串 ---
     cards_html_list = []
     for i, card_value in enumerate(st.session_state.game_board):
         card_status = st.session_state.card_status[i]
         
         if card_status in ['flipped', 'matched']:
+            # --- 【卡面修改】圖片名稱直接使用卡片值 (例如 "1.jpg") ---
             image_name = f"{card_value}.jpg"
             current_image_path = os.path.join(image_folder, image_name)
         else: # hidden
@@ -108,24 +108,25 @@ def start_game(user_email, db_update_func):
         
         b64_image = image_to_base64(current_image_path)
         
-        button_html = ""
-        # 只有覆蓋的牌才能點擊
         if card_status == 'hidden':
             card_content = f'<a href="?card_click={i}" target="_self"><img src="{b64_image}"></a>'
-        else: # 翻開的牌不能點擊
+        else: 
             card_content = f'<img src="{b64_image}">'
         
         cards_html_list.append(f'<div class="card-container">{card_content}</div>')
 
-    # 一次性渲染所有卡片
     st.markdown(f'<div class="card-grid">{"".join(cards_html_list)}</div>', unsafe_allow_html=True)
 
 
 def initialize_game():
     """初始化或重置遊戲"""
+    # --- 【卡面修改】卡池改為 1~8 ---
     base_cards = ["1", "2", "3", "4", "5", "6", "7", "8"]
-    card_pairs = [f"{c}-1" for c in base_cards] + [f"{c}-2" for c in base_cards]
+    
+    # --- 【卡面修改】每種卡片各有兩張 ---
+    card_pairs = base_cards * 2
     random.shuffle(card_pairs)
+
     st.session_state.game_board = card_pairs
     st.session_state.card_status = ['hidden'] * 16
     st.session_state.flipped_indices = []
@@ -145,13 +146,18 @@ def handle_card_click(index):
         if st.session_state.card_status[idx2] != 'matched':
             st.session_state.card_status[idx2] = 'hidden'
         st.session_state.flipped_indices = []
+
     if st.session_state.card_status[index] == 'hidden':
         st.session_state.card_status[index] = 'flipped'
         st.session_state.flipped_indices.append(index)
+
     if len(st.session_state.flipped_indices) == 2:
         idx1, idx2 = st.session_state.flipped_indices
-        card1, card2 = st.session_state.game_board[idx1], st.session_state.game_board[idx2]
-        if card1.split('-')[0] == card2.split('-')[0]: # 配對成功
+        card1 = st.session_state.game_board[idx1]
+        card2 = st.session_state.game_board[idx2]
+        
+        # --- 【規則修改】配對邏輯改為比較兩張卡是否完全相同 ---
+        if card1 == card2: # 配對成功
             st.session_state.card_status[idx1] = 'matched'
             st.session_state.card_status[idx2] = 'matched'
             st.session_state.matched_pairs += 1
