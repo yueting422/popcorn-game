@@ -7,8 +7,9 @@ import os
 def start_game(user_email, db_update_func):
     st.title("🧠 記憶翻翻樂")
 
-    # --- 【新增】加上備註提醒 ---
+    # --- 備註提醒 ---
     st.warning("⚠️ 由於使用的是免費資源，系統反應較慢，遊玩時請勿操作太快避免畫面混亂影響判斷。")
+    st.info("💡 建議使用電腦或將手機橫置遊玩，以獲得最佳體驗。")
 
     if 'game_started' not in st.session_state or not st.session_state.game_started:
         initialize_game()
