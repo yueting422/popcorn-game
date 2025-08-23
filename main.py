@@ -2,11 +2,11 @@
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
-from passlib.hash import pbkdf2_sha256 # 用於密碼雜湊與驗證
+from passlib.hash import pbkdf2_sha256
 
 # 引入遊戲模組
 import flash_card
-import more_less # <-- 新增：引入比大小遊戲
+import more_less
 
 # --- 網頁基礎設定 ---
 st.set_page_config(page_title="爆米花遊樂場", page_icon="🍿", layout="wide")
@@ -97,6 +97,44 @@ def show_login_register_page():
                         user_ref.set(user_data)
                         st.success("註冊成功！請前往登入分頁進行登入。")
 
+# --- 【新增】刪除帳號後端邏輯 ---
+def delete_user_account():
+    username = st.session_state['username']
+    
+    # 從 session state 獲取密碼和確認文字，避免重複創建 widget
+    password = st.session_state.get("delete_password", "")
+    confirmation = st.session_state.get("delete_confirm", "")
+
+    user_ref = db.collection('users').document(username).get()
+    if not user_ref.exists:
+        st.sidebar.error("找不到使用者資料。")
+        return
+
+    user_data = user_ref.to_dict()
+
+    # 1. 驗證密碼
+    if not pbkdf2_sha256.verify(password, user_data.get('password_hash', '')):
+        st.sidebar.error("密碼不正確！無法刪除帳號。")
+        return
+    
+    # 2. 驗證確認文字
+    if confirmation.strip().upper() != 'DELETE':
+        st.sidebar.error("確認文字不符，請輸入 'DELETE'。")
+        return
+
+    # 3. 執行刪除
+    try:
+        db.collection('users').document(username).delete()
+        st.success("您的帳號與所有資料已成功刪除。")
+        time.sleep(2) # 暫停兩秒讓使用者看到訊息
+        # 登出並返回登入頁面
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+    except Exception as e:
+        st.sidebar.error(f"刪除時發生錯誤: {e}")
+
+
 # --- 主應用程式邏輯 ---
 def main_app():
     st.sidebar.title(f"歡迎, {st.session_state['name']}!")
@@ -107,6 +145,19 @@ def main_app():
         st.rerun()
     
     st.sidebar.markdown("---")
+    
+    # --- 【新增】帳號管理區塊 ---
+    with st.sidebar.expander("⚙️ 帳號管理"):
+        st.warning("注意：刪除帳號將會永久移除您的所有資料，此操作無法復原。")
+        st.text_input("請輸入您的密碼以進行驗證", type="password", key="delete_password")
+        st.text_input("請輸入 'DELETE' 以確認刪除", key="delete_confirm")
+        st.button("永久刪除我的帳號", on_click=delete_user_account, type="primary")
+
+    st.sidebar.markdown("---")
+
+    # --- 【新增】圖源與開發者資訊 ---
+    st.sidebar.caption("圖源皆來自微博 : 小姚宋敏")
+    st.sidebar.caption("程式開發者 : 玥庭(IG : lyw._.sxh)")
 
     if 'page' not in st.session_state:
         st.session_state.page = "主頁"
@@ -118,7 +169,6 @@ def main_app():
             st.session_state.page = "翻翻樂"
             st.rerun()
             
-        # --- 修改：啟用比大小遊戲按鈕 ---
         if st.button("⚖️ 比大小"):
             st.session_state.page = "比大小"
             st.rerun()
@@ -126,7 +176,6 @@ def main_app():
     elif st.session_state.page == "翻翻樂":
         flash_card.start_game(st.session_state['username'], update_popcorn_in_db)
     
-    # --- 新增：導航到比大小遊戲 ---
     elif st.session_state.page == "比大小":
         more_less.start_game(st.session_state['username'], update_popcorn_in_db)
 
@@ -136,7 +185,6 @@ def update_popcorn_in_db(username, amount):
     try:
         user_ref = db.collection('users').document(username)
         user_ref.update({'popcorn': firestore.Increment(amount)})
-        # 直接更新 session_state 中的值
         st.session_state.popcorn = st.session_state.get('popcorn', 0) + amount
         return True
     except Exception as e:
