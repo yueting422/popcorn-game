@@ -47,10 +47,9 @@ def start_game(user_email, db_update_func):
     image_folder = os.path.join("image", "flash_card")
     card_back_image_path = os.path.join(image_folder, "卡背.jpg")
 
-    # --- 【排版修改】為了對應16張卡，改為4欄佈局 ---
+    # 排版為4欄佈局
     cols = st.columns(4)
     for i, card_value in enumerate(st.session_state.game_board):
-        # --- 【排版修改】對應4欄佈局 ---
         col = cols[i % 4]
         with col.container(border=True):
             card_status = st.session_state.card_status[i]
@@ -70,13 +69,11 @@ def start_game(user_email, db_update_func):
 
 def initialize_game():
     """初始化或重置遊戲"""
-    # --- 【卡面修改】卡池新增 "8" ---
     base_cards = ["1", "2", "3", "4", "5", "6", "7", "8"]
     card_pairs = [f"{c}-1" for c in base_cards] + [f"{c}-2" for c in base_cards]
     random.shuffle(card_pairs)
 
     st.session_state.game_board = card_pairs
-    # --- 【卡面修改】總卡數改為 16 張 ---
     st.session_state.card_status = ['hidden'] * 16
     st.session_state.flipped_indices = []
     st.session_state.matched_pairs = 0
